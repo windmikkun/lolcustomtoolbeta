@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LoL Custom Team Balancer</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+    <header>
+        <h1>LoL Custom Team Balancer</h1>
+        <p>
+            ランク表記入力 / メイン・サブ同格 / それ以外は tier-2（-2division） / 総合差＋対面差を考慮
+        </p>
+    </header>
+
+    <main>
+        <!-- 入力 & 参加者 -->
+        <section class="card">
+            <div class="row">
+                <div class="field">
+                    <label>名前</label>
+                    <input id="name" placeholder="例: Player1">
+                </div>
+
+                <div class="field">
+                    <label>Tier</label>
+                    <select id="tier">
+                        <option>IRON</option>
+                        <option>BRONZE</option>
+                        <option>SILVER</option>
+                        <option selected>GOLD</option>
+                        <option>PLATINUM</option>
+                        <option>EMERALD</option>
+                        <option>DIAMOND</option>
+                        <option>MASTER</option>
+                        <option>GRANDMASTER</option>
+                        <option>CHALLENGER</option>
+                    </select>
+                </div>
+
+                <div class="field" id="divisionWrap">
+                    <label>Division</label>
+                    <select id="division">
+                        <option>I</option>
+                        <option>II</option>
+                        <option>III</option>
+                        <option selected>IV</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row mt10">
+                <div class="field">
+                    <label>メインレーン</label>
+                    <select id="mainLane">
+                        <option>TOP</option>
+                        <option>JG</option>
+                        <option selected>MID</option>
+                        <option>ADC</option>
+                        <option>SUP</option>
+                    </select>
+                </div>
+
+                <div class="field">
+                    <label>サブレーン</label>
+                    <select id="subLane">
+                        <option>TOP</option>
+                        <option selected>JG</option>
+                        <option>MID</option>
+                        <option>ADC</option>
+                        <option>SUP</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row mt12">
+                <button id="addBtn">追加</button>
+                <button id="resetBtn" class="secondary">全消去</button>
+                <span class="pill">off-lane: <span class="mono">tier-2（-2division）</span></span>
+            </div>
+
+            <div class="mt14">
+                <div class="hint">参加者一覧（最大20人 / 2〜4チーム対応）</div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>名前</th>
+                            <th>ランク</th>
+                            <th>メイン/サブ</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="list"></tbody>
+                </table>
+            </div>
+
+            <!-- 設定 -->
+            <div class="card inner mt14">
+                <div class="row">
+                    <div class="field">
+                        <label>チーム数</label>
+                        <select id="teamCount">
+                            <option value="2" selected>2チーム（10人）</option>
+                            <option value="3">3チーム（15人）</option>
+                            <option value="4">4チーム（20人）</option>
+                        </select>
+                        <div class="hint">参加者が必要人数より多い場合、最適な人数を自動抽出します。</div>
+                    </div>
+
+                    <div class="field">
+                        <label>MATCHUP_WEIGHT（対面差の重視度）: <span id="wLabel" class="mono">3</span></label>
+                        <input id="weight" type="range" min="0" max="10" step="1" value="3"
+                            oninput="document.getElementById('wLabel').textContent = this.value"
+                            onchange="document.getElementById('wLabel').textContent = this.value" />
+
+                        <div class="hint">0にすると総合バランス優先（対面差は考慮しません）。</div>
+                    </div>
+                </div>
+
+                <div class="row mt12">
+                    <button id="buildBtn">チーム作成</button>
+                    <span id="countHint" class="hint"></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 結果 -->
+        <section class="card">
+            <div class="teamTitle">
+                <h2>結果</h2>
+                <span id="resultMeta" class="pill">未作成</span>
+            </div>
+
+            <div id="resultArea" class="resultArea">
+                <div class="hint">参加者を追加して「チーム作成」を押してください。</div>
+            </div>
+        </section>
+    </main>
+
+    <script src="app.js?v=2"></script>
+</body>
+
+</html>
