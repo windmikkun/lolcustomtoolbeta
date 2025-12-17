@@ -194,7 +194,7 @@ els.addBtn.addEventListener("click", () => {
     if (mainLane === subLane) return alert("メインとサブは別レーンにしてください");
 
     players.push({
-        id: crypto.randomUUID(),
+        id: makeId(),
         name,
         rank: { tier, division },
         mainLane,
@@ -799,6 +799,11 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", (e) => {
     if (e.target && e.target.id === "weight") syncWeightLabelForce();
 });
+
+function makeId() {
+  if (globalThis.crypto?.randomUUID) return makeId();
+  return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+}
 
 // 初期表示
 syncWeightLabelForce();
