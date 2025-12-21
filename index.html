@@ -161,6 +161,9 @@
                 </div>
                 <div class="row mt10">
                     <button id="bulkAddBtn">まとめて追加</button>
+                    <button id="exportBtn" class="secondary">JSONエクスポート</button>
+                    <button id="importBtn" class="secondary">JSONインポート</button>
+                    <input id="importFile" type="file" accept=".json,application/json" style="display:none;" />
                 </div>
             </div>
         </section>
@@ -200,6 +203,48 @@
                     <button id="buildBtn">チーム作成</button>
                     <span id="countHint" class="hint"></span>
                 </div>
+
+                <div class="card inner mt14">
+                    <h3>トーナメント</h3>
+                    <div class="row">
+                        <div class="field">
+                            <label>形式</label>
+                            <select id="bracketMode">
+                                <option value="single">シングルエリミ</option>
+                                <option value="roundrobin">総当たりリーグ</option>
+                                <option value="double">ダブルエリミ</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>1回戦 / 準決勝 BO</label>
+                            <select id="boSemi">
+                                <option value="1">BO1</option>
+                                <option value="3" selected>BO3</option>
+                                <option value="5">BO5</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>決勝 BO</label>
+                            <select id="boFinal">
+                                <option value="1">BO1</option>
+                                <option value="3">BO3</option>
+                                <option value="5" selected>BO5</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>総当たり BO</label>
+                            <select id="boRR">
+                                <option value="1">BO1</option>
+                                <option value="3" selected>BO3</option>
+                                <option value="5">BO5</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="hint">3チーム以上で「トーナメント表を生成」を押すと別タブに表示します（ラウンド別BOを適用）。</div>
+                    <div class="row mt10">
+                        <button id="bracketBtn" class="secondary">トーナメント表を生成</button>
+                    </div>
+                </div>
             </section>
 
             <!-- 結果（全幅） -->
@@ -212,6 +257,12 @@
 
                 <div id="resultArea" class="resultArea">
                     <div class="hint">参加者を追加して「チーム作成」を押してください。</div>
+                </div>
+
+                <div class="row mt10">
+                    <button id="teamExportBtn" class="secondary">チームJSONエクスポート</button>
+                    <button id="teamImportBtn" class="secondary">チームJSONインポート</button>
+                    <input id="teamImportFile" type="file" accept=".json,application/json" style="display:none;" />
                 </div>
             </section>
 
