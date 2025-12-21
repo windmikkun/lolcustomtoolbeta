@@ -76,6 +76,17 @@ const els = {
   rateTableWrap: $("rateTableWrap"),
   strictLane: $("strictLane"),
   strictWarn: $("strictWarn"),
+  bracketBtn: $("bracketBtn"),
+  bracketMode: $("bracketMode"),
+  boSemi: $("boSemi"),
+  boFinal: $("boFinal"),
+  boRR: $("boRR"),
+  exportBtn: $("exportBtn"),
+  importBtn: $("importBtn"),
+  importFile: $("importFile"),
+  teamExportBtn: $("teamExportBtn"),
+  teamImportBtn: $("teamImportBtn"),
+  teamImportFile: $("teamImportFile"),
 };
 
 /* ===============================
@@ -83,6 +94,7 @@ const els = {
 =============================== */
 const PLAYER_STORAGE_KEY = "lctb_players_v1";
 let players = loadPlayers();
+let lastTeams = null;
 
 function savePlayers() {
   try {
@@ -206,11 +218,55 @@ function renderList() {
   savePlayers();
 }
 
+function renderTeamsResult(teams, metaText = "") {
+  if (!els.resultArea) return;
+  els.resultArea.innerHTML = teams.map((team, i) => {
+    const total = Object.values(team.slots)
+      .filter(Boolean)
+      .reduce((sum, p) => sum + p.score, 0);
+    return `
+      <div class="teamCard">
+        <div class="teamHead">
+          <h3>Team ${i + 1}</h3>
+          <span class="badge">合計 ${total}</span>
+        </div>
+        <ul>
+          ${LANES.map(lane => {
+            const p = team.slots[lane];
+            if (!p) return `<li><span class="lane">${lane}</span><span class="player">-</span></li>`;
+            const laneNote = p.assignedLane && p.assignedLane !== lane ? ` (${p.assignedLane})` : "";
+            return `<li><span class="lane">${lane}</span><span class="player">${p.name}${laneNote} - ${rankLabel(p)}</span></li>`;
+          }).join("")}
+        </ul>
+      </div>
+    `;
+  }).join("");
+  if (els.meta) els.meta.textContent = metaText || "作成済み";
+}
+
+function serializeTeams(teams) {
+  return teams.map(team => ({
+    slots: Object.fromEntries(LANES.map(l => {
+      const p = team.slots[l];
+      if (!p) return [l, null];
+      return [l, {
+        name: p.name,
+        rank: p.rank,
+        mainLane: p.mainLane,
+        subLanes: p.subLanes,
+        assignedLane: p.assignedLane || l,
+        score: p.score,
+      }];
+    })),
+  }));
+}
+
 function clearResult() {
   els.meta.textContent = "未作成";
   els.resultArea.innerHTML = `<div class="hint">参加者を追加してください</div>`;
   const overflow = $("overflowInfo");
   if (overflow) overflow.textContent = "";
+  lastTeams = null;
 }
 
 function renderScoreTable() {
@@ -273,6 +329,52 @@ els.teamCount.addEventListener("change", () => {
 if (els.strictLane && els.strictWarn) {
   els.strictLane.addEventListener("change", () => {
     els.strictWarn.style.display = els.strictLane.checked ? "" : "none";
+  });
+}
+
+if (els.bracketBtn && els.bracketMode && els.boSemi && els.boFinal && els.boRR) {
+  els.bracketBtn.addEventListener("click", () => {
+    const mode = els.bracketMode.value;
+    const teamCount = Number(els.teamCount.value);
+    if (teamCount < 3) {
+      alert("トーナメントは3チーム以上で生成してください");
+      return;
+    }
+    if (!players || players.length < teamCount * 5) {
+      alert("まずチーム作成を行ってください");
+      return;
+    }
+    const weight = Number(els.weight.value);
+    const strictOnly = !!(els.strictLane && els.strictLane.checked);
+    const sorted = players
+      .slice()
+      .sort((a, b) => rankToScore(b.rank) - rankToScore(a.rank));
+    const selected = sorted.slice(0, needSize(teamCount));
+    const { teams } = assignTeams(selected, teamCount, weight, strictOnly);
+
+    const bo = {
+      r1: Number(els.boSemi.value),
+      semi: Number(els.boSemi.value),
+      final: Number(els.boFinal.value),
+      rr: Number(els.boRR.value),
+    };
+
+    const payload = {
+      mode,
+      bo,
+      teams: teams.map((t, idx) => ({
+        name: `Team ${idx + 1}`,
+        total: Object.values(t.slots).filter(Boolean).reduce((s, p) => s + p.score, 0),
+        members: Object.values(t.slots).filter(Boolean).map(p => `${p.name}(${p.assignedLane})`),
+      })),
+    };
+    try {
+      localStorage.setItem("lctb_bracket_payload", JSON.stringify(payload));
+    } catch (e) {
+      alert("データ保存に失敗しました");
+      return;
+    }
+    window.open("bracket.html", "_blank");
   });
 }
 
@@ -392,6 +494,136 @@ els.bulkAddBtn.addEventListener("click", () => {
   els.bulkInput.value = "";
   savePlayers();
 });
+
+// JSONエクスポート
+if (els.exportBtn) {
+  els.exportBtn.addEventListener("click", () => {
+    if (!players || players.length === 0) {
+      alert("エクスポートする参加者がありません");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(players, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "players.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+// JSONインポート
+if (els.importBtn && els.importFile) {
+  els.importBtn.addEventListener("click", () => {
+    els.importFile.value = "";
+    els.importFile.click();
+  });
+  els.importFile.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!Array.isArray(parsed)) throw new Error("配列ではありません");
+        const mapped = parsed.map(p => ({
+          id: makeId(),
+          name: p.name,
+          rank: p.rank,
+          mainLane: p.mainLane,
+          subLanes: Array.isArray(p.subLanes) ? p.subLanes : [],
+        })).filter(p => p.name && p.rank && p.mainLane);
+        if (mapped.length === 0) throw new Error("有効なプレイヤーがありません");
+        if (mapped.length > 20) throw new Error("最大20人までです");
+        players = mapped;
+        renderList();
+        clearResult();
+        savePlayers();
+      } catch (err) {
+        alert(`インポート失敗: ${err.message || err}`);
+      }
+    };
+    reader.readAsText(file);
+  });
+}
+
+// チームJSONエクスポート
+if (els.teamExportBtn) {
+  els.teamExportBtn.addEventListener("click", () => {
+    if (!lastTeams || lastTeams.length === 0) {
+      alert("エクスポートするチームがありません（先にチーム作成してください）");
+      return;
+    }
+    const blob = new Blob([JSON.stringify(serializeTeams(lastTeams), null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "teams.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+// チームJSONインポート
+if (els.teamImportBtn && els.teamImportFile) {
+  els.teamImportBtn.addEventListener("click", () => {
+    els.teamImportFile.value = "";
+    els.teamImportFile.click();
+  });
+  els.teamImportFile.addEventListener("change", (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(reader.result);
+        if (!Array.isArray(parsed)) throw new Error("teams配列が必要です");
+        const teams = parsed.map(t => ({
+          slots: Object.fromEntries(LANES.map(l => {
+            const p = t.slots?.[l];
+            if (!p) return [l, null];
+            return [l, {
+              id: makeId(),
+              name: p.name,
+              rank: p.rank,
+              mainLane: p.mainLane,
+              subLanes: Array.isArray(p.subLanes) ? p.subLanes : [],
+              assignedLane: p.assignedLane || l,
+              score: p.score,
+            }];
+          })),
+        }));
+        lastTeams = teams;
+        renderTeamsResult(teams, "インポート済み");
+        const overflow = $("overflowInfo");
+        if (overflow) overflow.textContent = "チームをインポートしました";
+        // プレイヤー一覧にも同期
+        const mergedPlayers = [];
+        const byName = new Set();
+        for (const team of teams) {
+          for (const lane of LANES) {
+            const p = team.slots[lane];
+            if (!p || byName.has(p.name)) continue;
+            byName.add(p.name);
+            mergedPlayers.push({
+              id: makeId(),
+              name: p.name,
+              rank: p.rank,
+              mainLane: p.mainLane || lane,
+              subLanes: Array.isArray(p.subLanes) ? p.subLanes : [],
+            });
+          }
+        }
+        players = mergedPlayers.slice(0, 20);
+        renderList();
+        savePlayers();
+      } catch (err) {
+        alert(`チームインポート失敗: ${err.message || err}`);
+      }
+    };
+    reader.readAsText(file);
+  });
+}
 
 /* ===============================
    チーム作成（マッチアップ考慮版）
@@ -523,28 +755,8 @@ els.buildBtn.addEventListener("click", () => {
   const overflowPlayers = sorted.slice(need);
 
   const { teams, unassigned } = assignTeams(selected, t, weight, strictOnly);
-
-  els.resultArea.innerHTML = teams.map((team, i) => {
-    const total = Object.values(team.slots)
-      .filter(Boolean)
-      .reduce((sum, p) => sum + p.score, 0);
-    return `
-      <div class="teamCard">
-        <div class="teamHead">
-          <h3>Team ${i + 1}</h3>
-          <span class="badge">合計 ${total}</span>
-        </div>
-        <ul>
-          ${LANES.map(lane => {
-            const p = team.slots[lane];
-            return p ? `<li>${lane}: ${p.name} (${rankLabel(p)})</li>` : `<li>${lane}: -</li>`;
-          }).join("")}
-        </ul>
-      </div>
-    `;
-  }).join("");
-
-  els.meta.textContent = `作成完了 / W:${weight}`;
+  lastTeams = teams;
+  renderTeamsResult(teams, `作成完了 / W:${weight}`);
 
   const overflow = $("overflowInfo");
   if (overflow) {

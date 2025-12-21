@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>トーナメント表</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Inter", system-ui, sans-serif;
+      background: #0b1220;
+      color: #e9eef7;
+    }
+    body { margin: 0; padding: 16px; background: #0b1220; color: #e9eef7; }
+    h1 { margin: 0 0 12px; font-size: 20px; }
+    .card {
+      background: #111a2d;
+      border: 1px solid #1f2d4a;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    .row { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+    .match {
+      border: 1px solid #243453;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 8px;
+      background: #0d1528;
+      min-width: 260px;
+    }
+    .title { font-size: 13px; color: #9bb0d6; margin-bottom: 6px; }
+    .teamLine {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      margin: 4px 0;
+    }
+    .teamName { font-weight: 600; }
+    input.score { width: 52px; background: #0b1220; color: #e9eef7; border: 1px solid #2c3d5f; border-radius: 6px; padding: 4px; text-align: center; }
+    button { background: #213a78; color: #fff; border: none; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+    button.secondary { background: #1c263a; }
+    .small { font-size: 12px; padding: 4px 8px; }
+    .label { font-size: 12px; color: #b5c4e4; margin-right: 4px; }
+    .meta { color: #8fa2c8; font-size: 12px; }
+    .badge { background: #1f355f; padding: 2px 6px; border-radius: 6px; font-size: 11px; color: #bcd4ff; }
+    .col { flex: 1 1 280px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+    .note { font-size: 12px; color: #9bb0d6; margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>トーナメント表</h1>
+  <div id="info" class="note"></div>
+
+  <div id="rankWrap" class="card" style="display:none;">
+    <h2>順位</h2>
+    <ol id="rankList"></ol>
+  </div>
+
+  <div id="singleWrap" class="card" style="display:none;">
+    <h2>シングルエリミ</h2>
+    <div class="grid" id="singleGrid"></div>
+  </div>
+
+  <div id="rrWrap" class="card" style="display:none;">
+    <h2>総当たりリーグ</h2>
+    <div id="rrList"></div>
+  </div>
+
+  <div id="deWrap" class="card" style="display:none;">
+    <h2>ダブルエリミ</h2>
+    <div class="grid" id="deGrid"></div>
+  </div>
+
+  <script>
+    const PAYLOAD_KEY = "lctb_bracket_payload";
+    const dataRaw = localStorage.getItem(PAYLOAD_KEY);
+    const info = document.getElementById("info");
+    if (!dataRaw) {
+      info.textContent = "データがありません。元の画面から生成してください。";
+      throw new Error("no data");
+    }
+    let payload;
+    try {
+      payload = JSON.parse(dataRaw);
+    } catch (e) {
+      info.textContent = "データの読み込みに失敗しました。";
+      throw e;
+    }
+    const { teams = [], mode = "single", bo = {} } = payload;
+    info.textContent = `モード: ${mode} / チーム数: ${teams.length} / BO設定: ${JSON.stringify(bo)}`;
+
+    // Utilities
+    const rankWrap = document.getElementById("rankWrap");
+    const rankList = document.getElementById("rankList");
+    function showRanks(items, statsMap) {
+      if (!items || items.length === 0) return;
+      rankWrap.style.display = "";
+      rankList.innerHTML = items.map((r) => {
+        const s = statsMap?.get(r.name);
+        const statText = s ? ` / ${s.win}-${s.loss} (差:${s.diff})` : "";
+        const members = (r.members || s?.members || []).join(", ");
+        return `<li>${r.name}${statText} <span class="meta">${members}</span></li>`;
+      }).join("");
+    }
+    function byesFilled(list, target) {
+      const arr = [...list];
+      while (arr.length < target) arr.push({ name: "BYE", total: 0, members: [] });
+      return arr;
+    }
+    function scoreFields(match) {
+      return `
+        <div class="row" style="align-items:center;">
+          <span class="label">スコア</span>
+          <input class="score" type="number" min="0" value="${match.scoreA}" data-field="a">
+          <span class="label">-</span>
+          <input class="score" type="number" min="0" value="${match.scoreB}" data-field="b">
+          <button class="small" data-action="confirm">結果確定</button>
+        </div>
+        <div class="note">形式: BO${match.bo}（${Math.ceil(match.bo / 2)}本先取）</div>
+      `;
+    }
+    function renderMatch(el, match, onConfirm) {
+      el.innerHTML = `
+        <div class="title">${match.label}</div>
+        <div class="teamLine"><span class="teamName">${match.teamA.name}</span><span class="badge">${match.teamA.total ?? 0}</span></div>
+        <div class="meta">${(match.teamA.members||[]).join(", ")}</div>
+        <div class="teamLine"><span class="teamName">${match.teamB.name}</span><span class="badge">${match.teamB.total ?? 0}</span></div>
+        <div class="meta">${(match.teamB.members||[]).join(", ")}</div>
+        ${match.teamA.name === "BYE" || match.teamB.name === "BYE" ? '<div class="note">BYEのため自動勝利</div>' : scoreFields(match)}
+      `;
+      if (match.teamA.name === "BYE" || match.teamB.name === "BYE") {
+        onConfirm(match.teamA.name === "BYE" ? match.teamB : match.teamA, match);
+        return;
+      }
+      const inputs = el.querySelectorAll("input.score");
+      const btn = el.querySelector('button[data-action="confirm"]');
+      btn.addEventListener("click", () => {
+        const a = Number(inputs[0].value);
+        const b = Number(inputs[1].value);
+        const target = Math.ceil(match.bo / 2);
+        if (a < 0 || b < 0) {
+          alert("スコアは0以上で入力してください");
+          return;
+        }
+        if (a < target && b < target) {
+          alert(`BO${match.bo} は${target}本先取です`);
+          return;
+        }
+        if (a >= target && b >= target && a !== target && b !== target) {
+          // allow higher but must not both reach target+?
+        }
+        if (a === b) {
+          alert("引き分けは無効です");
+          return;
+        }
+        const winner = a > b ? match.teamA : match.teamB;
+        match.scoreA = a;
+        match.scoreB = b;
+        onConfirm(winner, match);
+      });
+    }
+
+    // Single elimination (max 4 teams)
+    function buildSingle() {
+      const wrap = document.getElementById("singleWrap");
+      const grid = document.getElementById("singleGrid");
+      wrap.style.display = "";
+      const seeded = byesFilled(teams, teams.length <= 2 ? 2 : 4);
+      const boSemi = bo.semi || 1;
+      const boFinal = bo.final || 1;
+      const m1 = { id: "s1", label: "準決勝1", teamA: seeded[0], teamB: seeded[1], bo: boSemi, scoreA: 0, scoreB: 0 };
+      const m2 = { id: "s2", label: "準決勝2", teamA: seeded[2], teamB: seeded[3], bo: boSemi, scoreA: 0, scoreB: 0 };
+      const m3 = { id: "s3", label: "決勝", teamA: { name: "待機", members: [], total: 0 }, teamB: { name: "待機", members: [], total: 0 }, bo: boFinal, scoreA: 0, scoreB: 0 };
+
+      const node1 = document.createElement("div"); node1.className = "match";
+      const node2 = document.createElement("div"); node2.className = "match";
+      const node3 = document.createElement("div"); node3.className = "match";
+      grid.append(node1, node2, node3);
+
+      const updateFinal = () => {
+        node3.innerHTML = "";
+        renderMatch(node3, m3, (winner, match) => {
+          const runner = match.teamA.name === winner.name ? match.teamB : match.teamA;
+          const ranks = [
+            { name: winner.name, members: winner.members, win: 1, loss: 0, diff: (match.scoreA - match.scoreB) },
+            { name: runner.name, members: runner.members, win: 0, loss: 1, diff: (match.scoreB - match.scoreA) },
+          ];
+          if (m1.loser) ranks.push({ name: m1.loser.name, members: m1.loser.members, win: 0, loss: 1, diff: 0 });
+          if (m2.loser) ranks.push({ name: m2.loser.name, members: m2.loser.members, win: 0, loss: 1, diff: 0 });
+          const map = new Map(ranks.map(r => [r.name, r]));
+          showRanks(ranks, map);
+        });
+      };
+
+      renderMatch(node1, m1, (winner) => {
+        m1.loser = m1.teamA.name === winner.name ? m1.teamB : m1.teamA;
+        m3.teamA = winner;
+        updateFinal();
+      });
+      renderMatch(node2, m2, (winner) => {
+        m2.loser = m2.teamA.name === winner.name ? m2.teamB : m2.teamA;
+        m3.teamB = winner;
+        updateFinal();
+      });
+      updateFinal();
+    }
+
+    // Round robin (all play all)
+    function buildRoundRobin() {
+      const wrap = document.getElementById("rrWrap");
+      const list = document.getElementById("rrList");
+      wrap.style.display = "";
+      const matches = [];
+      const rrBo = bo.rr || 1;
+      for (let i = 0; i < teams.length; i++) {
+        for (let j = i + 1; j < teams.length; j++) {
+          matches.push({
+            id: `rr-${i}-${j}`,
+            label: `対戦 ${i + 1} vs ${j + 1}`,
+            teamA: teams[i],
+            teamB: teams[j],
+            bo: rrBo,
+            scoreA: 0,
+            scoreB: 0,
+          });
+        }
+      }
+      function tryRank() {
+        const complete = matches.every(m => {
+          const target = Math.ceil(m.bo / 2);
+          return (m.scoreA >= target || m.scoreB >= target) && m.scoreA !== m.scoreB;
+        });
+        if (!complete) return;
+        const table = teams.map(t => ({ name: t.name, members: t.members, win: 0, loss: 0, diff: 0 }));
+        const nameTo = new Map(table.map(t => [t.name, t]));
+        for (const m of matches) {
+          const a = nameTo.get(m.teamA.name);
+          const b = nameTo.get(m.teamB.name);
+          if (!a || !b) continue;
+          if (m.scoreA > m.scoreB) { a.win++; b.loss++; }
+          else { b.win++; a.loss++; }
+          a.diff += (m.scoreA - m.scoreB);
+          b.diff += (m.scoreB - m.scoreA);
+        }
+        const ranks = table.sort((x, y) => y.win - x.win || y.diff - x.diff);
+        const map = new Map(ranks.map(r => [r.name, r]));
+        showRanks(ranks, map);
+      }
+
+      for (const m of matches) {
+        const node = document.createElement("div");
+        node.className = "match";
+        renderMatch(node, m, () => {
+          tryRank();
+        });
+        list.appendChild(node);
+      }
+    }
+
+    // Double elimination (4-team template)
+    function buildDouble() {
+      const wrap = document.getElementById("deWrap");
+      const grid = document.getElementById("deGrid");
+      wrap.style.display = "";
+      const seeded = byesFilled(teams, 4);
+
+      const boR1 = bo.r1 || 1;
+      const boSemi = bo.semi || 1;
+      const boFinal = bo.final || 1;
+
+      const matches = {
+        wb1: { id: "wb1", label: "WB 1回戦1", teamA: seeded[0], teamB: seeded[1], bo: boR1, scoreA: 0, scoreB: 0 },
+        wb2: { id: "wb2", label: "WB 1回戦2", teamA: seeded[2], teamB: seeded[3], bo: boR1, scoreA: 0, scoreB: 0 },
+        wbf: { id: "wbf", label: "WB決勝", teamA: { name: "待機", members: [], total: 0 }, teamB: { name: "待機", members: [], total: 0 }, bo: boSemi, scoreA: 0, scoreB: 0 },
+        lb1: { id: "lb1", label: "LB 1回戦", teamA: { name: "敗者WB1", members: [], total: 0 }, teamB: { name: "敗者WB2", members: [], total: 0 }, bo: boR1, scoreA: 0, scoreB: 0 },
+        lbf: { id: "lbf", label: "LB決勝", teamA: { name: "待機", members: [], total: 0 }, teamB: { name: "WB敗者", members: [], total: 0 }, bo: boSemi, scoreA: 0, scoreB: 0 },
+        gf: { id: "gf", label: "決勝", teamA: { name: "WB勝者", members: [], total: 0 }, teamB: { name: "LB勝者", members: [], total: 0 }, bo: boFinal, scoreA: 0, scoreB: 0 },
+      };
+
+      const nodes = {};
+      for (const key of Object.keys(matches)) {
+        const node = document.createElement("div");
+        node.className = "match";
+        nodes[key] = node;
+        grid.appendChild(node);
+      }
+
+      const updateWBF = () => {
+        renderMatch(nodes.wbf, matches.wbf, (winner, match) => {
+          matches.gf.teamA = winner;
+          matches.lbf.teamB = match.teamA.name === winner.name ? match.teamB : match.teamA;
+          renderAll();
+        });
+      };
+      const updateLBF = () => {
+        renderMatch(nodes.lbf, matches.lbf, (winner, match) => {
+          matches.gf.teamB = winner;
+          matches.lbf.loser = match.teamA.name === winner.name ? match.teamB : match.teamA;
+          renderAll();
+        });
+      };
+      const renderAll = () => {
+        renderMatch(nodes.gf, matches.gf, (winner, match) => {
+          const runner = match.teamA.name === winner.name ? match.teamB : match.teamA;
+          const ranks = [
+            { name: winner.name, members: winner.members },
+            { name: runner.name, members: runner.members },
+          ];
+          if (matches.lbf.loser) ranks.push({ name: matches.lbf.loser.name, members: matches.lbf.loser.members });
+          showRanks(ranks);
+        });
+      };
+
+      renderMatch(nodes.wb1, matches.wb1, (winner, match) => {
+        matches.wbf.teamA = winner;
+        matches.lb1.teamA = match.teamA.name === winner.name ? match.teamB : match.teamA;
+        updateWBF();
+        renderMatch(nodes.lb1, matches.lb1, (lbWinner) => {
+          matches.lbf.teamA = lbWinner;
+          updateLBF();
+        });
+      });
+      renderMatch(nodes.wb2, matches.wb2, (winner, match) => {
+        matches.wbf.teamB = winner;
+        matches.lb1.teamB = match.teamA.name === winner.name ? match.teamB : match.teamA;
+        updateWBF();
+        renderMatch(nodes.lb1, matches.lb1, (lbWinner) => {
+          matches.lbf.teamA = lbWinner;
+          updateLBF();
+        });
+      });
+      updateWBF();
+      updateLBF();
+      renderAll();
+    }
+
+    switch (mode) {
+      case "single":
+        buildSingle();
+        break;
+      case "roundrobin":
+        buildRoundRobin();
+        break;
+      case "double":
+        buildDouble();
+        break;
+      default:
+        info.textContent = `未知のモード: ${mode}`;
+    }
+  </script>
+</body>
+</html>
