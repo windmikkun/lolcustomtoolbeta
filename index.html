@@ -5,20 +5,57 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>LoL Custom Team Balancer</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="style.css" />
 </head>
 
 <body>
     <header>
-        <h1>LoL Custom Team Balancer</h1>
+        <h1>LoL Custom Team Balancer(β)</h1>
         <p>
-            ランク表記入力 / メイン・サブ同格 / それ以外は tier-2（-2division） / 総合差＋対面差を考慮
+            最高ランク入力推奨 / メイン・サブ同レート計算 / それ以外は tier-2（-2division） / 総合差＋対面差を考慮して計算します。
         </p>
     </header>
 
     <main>
+        <!-- レート換算表（全幅・最上部） -->
+        <section class="card full-span">
+            <div class="teamTitle">
+                <div class="titleRow">
+                    <h2>レート換算表</h2>
+                    <div class="rateSummary" id="rateSummary">IRON 0〜?</div>
+                </div>
+                <button id="toggleRate" class="secondary small">詳細を表示</button>
+            </div>
+            <div class="tableGrid" id="rateTableWrap" style="display:none;">
+                <div class="tableWrap compact">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tier</th>
+                                <th>Division</th>
+                                <th class="mono">ポイント</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scoreTableL"></tbody>
+                    </table>
+                </div>
+                <div class="tableWrap compact">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Tier</th>
+                                <th>Division</th>
+                                <th class="mono">ポイント</th>
+                            </tr>
+                        </thead>
+                        <tbody id="scoreTableR"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
         <!-- 入力 & 参加者 -->
-        <section class="card">
+        <section class="card layout-left">
             <div class="row">
                 <div class="field">
                     <label>名前</label>
@@ -65,14 +102,27 @@
                 </div>
 
                 <div class="field">
-                    <label>サブレーン</label>
-                    <select id="subLane">
+                    <label>サブレーン1（必須）</label>
+                    <select id="subLane1">
                         <option>TOP</option>
                         <option selected>JG</option>
                         <option>MID</option>
                         <option>ADC</option>
                         <option>SUP</option>
                     </select>
+                </div>
+
+                <div class="field">
+                    <label>サブレーン2（任意）</label>
+                    <select id="subLane2">
+                        <option value="NONE" selected>選択しない</option>
+                        <option>TOP</option>
+                        <option>JG</option>
+                        <option>MID</option>
+                        <option>ADC</option>
+                        <option>SUP</option>
+                    </select>
+                    <div class="hint">未選択の場合は「選択しない」を選んでください。</div>
                 </div>
             </div>
 
@@ -84,21 +134,40 @@
 
             <div class="mt14">
                 <div class="hint">参加者一覧（最大20人 / 2〜4チーム対応）</div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>名前</th>
-                            <th>ランク</th>
-                            <th>メイン/サブ</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody id="list"></tbody>
-                </table>
+                <div class="tableWrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>名前</th>
+                                <th>ランク</th>
+                                <th>メイン/サブ</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="list"></tbody>
+                    </table>
+                </div>
             </div>
 
-            <!-- 設定 -->
+            <!-- まとめて追加 -->
             <div class="card inner mt14">
+                <div class="field">
+                    <label>まとめて追加（1行1人、カンマ区切り）</label>
+                    <textarea id="bulkInput" rows="5" placeholder="例: Player1, GOLD, IV, MID, JG&#10;Player2, PLATINUM, II, TOP, JG, SUP"></textarea>
+                    <div class="hint">
+                        フォーマット: 名前, tier, division(省略可), メイン, サブ1, (サブ2省略可)<br />
+                        MASTER+の場合 division は空でもOK。
+                    </div>
+                </div>
+                <div class="row mt10">
+                    <button id="bulkAddBtn">まとめて追加</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 右カラム（設定 + 結果） -->
+        <div class="rightCol layout-right">
+            <section class="card">
                 <div class="row">
                     <div class="field">
                         <label>チーム数</label>
@@ -111,12 +180,19 @@
                     </div>
 
                     <div class="field">
-                        <label>MATCHUP_WEIGHT（対面差の重視度）: <span id="wLabel" class="mono">3</span></label>
-                        <input id="weight" type="range" min="0" max="10" step="1" value="3"
+                        <label>MATCHUP_WEIGHT（対面差の重視度）: <span id="wLabel" class="mono">2</span></label>
+                        <input id="weight" type="range" min="0" max="4" step="1" value="2"
                             oninput="document.getElementById('wLabel').textContent = this.value"
                             onchange="document.getElementById('wLabel').textContent = this.value" />
 
-                        <div class="hint">0にすると総合バランス優先（対面差は考慮しません）。</div>
+                        <div class="hint">0にすると総合バランス優先。<br/>4にすると対面のレート差優先。</div>
+                    </div>
+                </div>
+
+                <div class="field checkboxField">
+                    <label><input id="strictLane" type="checkbox" /> メイン/サブのみで割り当てる</label>
+                    <div id="strictWarn" class="hint" style="display:none;">
+                        ※ メイン/サブ以外には置きません。割り当てできない/バランスが崩れる可能性があります。
                     </div>
                 </div>
 
@@ -124,20 +200,22 @@
                     <button id="buildBtn">チーム作成</button>
                     <span id="countHint" class="hint"></span>
                 </div>
-            </div>
-        </section>
+            </section>
 
-        <!-- 結果 -->
-        <section class="card">
-            <div class="teamTitle">
-                <h2>結果</h2>
-                <span id="resultMeta" class="pill">未作成</span>
-            </div>
+            <!-- 結果（全幅） -->
+            <section class="card full-span">
+                <div class="teamTitle">
+                    <h2>結果</h2>
+                    <div id="overflowInfo" class="hint"></div>
+                    <span id="resultMeta" class="pill">未作成</span>
+                </div>
 
-            <div id="resultArea" class="resultArea">
-                <div class="hint">参加者を追加して「チーム作成」を押してください。</div>
-            </div>
-        </section>
+                <div id="resultArea" class="resultArea">
+                    <div class="hint">参加者を追加して「チーム作成」を押してください。</div>
+                </div>
+            </section>
+
+        </div>
     </main>
 
     <script src="app.js"></script>
