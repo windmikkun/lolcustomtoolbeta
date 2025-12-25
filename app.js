@@ -132,6 +132,17 @@ function isMasterPlus(tier) {
   return ["MASTER", "GRANDMASTER", "CHALLENGER"].includes(String(tier).toUpperCase());
 }
 
+function normalizeDivision(div) {
+  const s = String(div).toUpperCase();
+  // Unicodeローマ数字 → ASCII
+  return ({
+    "Ⅰ": "I",
+    "Ⅱ": "II",
+    "Ⅲ": "III",
+    "Ⅳ": "IV",
+  }[s]) || s;
+}
+
 function rankToScore(rank) {
   const tier = String(rank.tier).toUpperCase();
   if (isMasterPlus(tier)) {
@@ -141,7 +152,8 @@ function rankToScore(rank) {
     if (tier === "CHALLENGER") return diamondTop + CHALLENGER_BONUS;
   }
   const idx = TIER_ORDER.indexOf(tier);
-  const div = String(rank.division || "IV").toUpperCase();
+  const divNorm = normalizeDivision(rank.division || "IV");
+  const div = DIV_OFFSET[divNorm] !== undefined ? divNorm : "IV";
   return idx * TIER_STEP + DIV_OFFSET[div];
 }
 
@@ -744,12 +756,25 @@ els.buildBtn.addEventListener("click", () => {
   }
 
   const weight = Number(els.weight.value);
-  const strictOnly = !!(els.strictLane && els.strictLane.checked);
+  let strictOnly = !!(els.strictLane && els.strictLane.checked);
+  let autoRelaxed = false;
 
   // 余剰がある場合は上位need人を使用（簡易抽出）
   const sorted = players
     .slice()
     .sort((a, b) => rankToScore(b.rank) - rankToScore(a.rank));
+
+  if (strictOnly) {
+    const coverageOk = LANES.every(lane => {
+      const candidates = sorted.filter(p => p.mainLane === lane || p.subLanes.includes(lane));
+      return candidates.length >= t;
+    });
+    if (!coverageOk) {
+      strictOnly = false;
+      autoRelaxed = true;
+      alert("選択したメンバーではstrictレーン条件を満たせません。strictをオフにして組み直します。");
+    }
+  }
 
   const selected = sorted.slice(0, need);
   const overflowPlayers = sorted.slice(need);
@@ -761,6 +786,9 @@ els.buildBtn.addEventListener("click", () => {
   const overflow = $("overflowInfo");
   if (overflow) {
     const msgs = [];
+    if (autoRelaxed) {
+      msgs.push("strict条件を満たせなかったためレーン拘束を緩和しました");
+    }
     if (overflowPlayers.length > 0) {
       msgs.push(`抽出されなかった参加者: ${overflowPlayers.map(p => p.name).join(", ")}`);
     }
